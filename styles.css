@@ -1,307 +1,759 @@
-/**
- * Thanjavur Fresh Coconuts — Backend API
- * --------------------------------------
- * A small, dependable Express server that:
- *   1. Serves the product list (so prices live in one place, not scattered in HTML)
- *   2. Accepts new orders from the website's order form
- *   3. Saves every order to a local JSON file (orders.json) as a permanent record
- *   4. Emails the business owner + the customer a confirmation (if SMTP is configured)
- *
- * No database server required — orders.json acts as a simple, file-based database.
- * This is intentional: easy to deploy, easy to back up (just copy the file),
- * easy to read by hand. Swap in a real database later if order volume grows.
- */
+/* =========================================================================
+   THANJAVUR FRESH COCONUTS — Design tokens
+   Palette grounded in the subject: husk brown, coir tan, coconut-water
+   white, palm green, and a terracotta accent pulled from Thanjavur's
+   temple brickwork.
+   ========================================================================= */
+:root {
+  --husk-brown: #3D2817;
+  --husk-brown-light: #5A3D26;
+  --coir-tan: #C9A66B;
+  --coir-tan-light: #E4D2AC;
+  --coconut-white: #F5F3ED;
+  --coconut-white-dim: #ECE8DC;
+  --palm-green: #4A6741;
+  --palm-green-dark: #344A2D;
+  --temple-terracotta: #B5542D;
+  --temple-terracotta-dark: #8F3F1F;
+  --ink: #2A1F15;
+  --ink-soft: #5C4F40;
+  --white: #FFFFFF;
 
-const express = require("express");
-const cors = require("cors");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const path = require("path");
-require("dotenv").config();
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 
-const app = express();
-const PORT = process.env.PORT || 4000;
-const ORDERS_FILE = path.join(__dirname, "orders.json");
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 18px;
 
-const BUSINESS_NAME = process.env.BUSINESS_NAME || "Thanjavur Fresh Coconuts";
-const BUSINESS_PHONE = process.env.BUSINESS_PHONE || "7397250301";
-const BUSINESS_EMAIL = process.env.BUSINESS_EMAIL || "abineshvicky2006@gmail.com";
+  --shadow-soft: 0 4px 18px rgba(61, 40, 23, 0.08);
+  --shadow-card: 0 8px 28px rgba(61, 40, 23, 0.12);
 
-app.use(cors());
-app.use(bodyParser.json());
+  --max-width: 1180px;
+}
 
-// ---------------------------------------------------------------------------
-// Product catalog — single source of truth for what's sold and at what price.
-// Edit this list to change what shows up on the website; the frontend pulls
-// this via GET /api/products instead of hardcoding prices in HTML.
-// ---------------------------------------------------------------------------
-const PRODUCTS = [
-  {
-    id: "tender-coconut",
-    name: "Tender Coconut (Elaneer)",
-    unit: "per piece",
-    price: 35,
-    minOrder: 10,
-    description: "Sweet, soft-water tender coconuts cut fresh same morning from the farm.",
-  },
-  {
-    id: "dry-coconut",
-    name: "Dry Coconut (Thengai)",
-    unit: "per piece",
-    price: 28,
-    minOrder: 10,
-    description: "Mature, full-husked dry coconuts. Ideal for cooking and festival use.",
-  },
-  {
-    id: "coconut-husked-100",
-    name: "Husked Coconut (De-husked)",
-    unit: "per piece",
-    price: 22,
-    minOrder: 20,
-    description: "De-husked, ready-to-crack coconuts for kitchens and small hotels.",
-  },
-  {
-    id: "coconut-bulk-sack",
-    name: "Wholesale Sack (100 pcs)",
-    unit: "per sack",
-    price: 2200,
-    minOrder: 1,
-    description: "Bulk sack of 100 dry coconuts — best rate for shops, hotels, and resellers.",
-  },
-];
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
-// ---------------------------------------------------------------------------
-// Orders storage helpers
-// ---------------------------------------------------------------------------
-function readOrders() {
-  if (!fs.existsSync(ORDERS_FILE)) return [];
-  try {
-    const raw = fs.readFileSync(ORDERS_FILE, "utf-8");
-    return raw.trim() ? JSON.parse(raw) : [];
-  } catch (err) {
-    console.error("Failed to read orders.json:", err);
-    return [];
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--coconut-white);
+  color: var(--ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+img, svg { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+
+.section-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.8rem, 3.2vw, 2.6rem);
+  color: var(--husk-brown);
+  margin: 0 0 12px;
+  letter-spacing: -0.01em;
+}
+
+.section-sub {
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  max-width: 620px;
+  margin: 0 0 40px;
+}
+
+/* =========================================================================
+   BUTTONS
+   ========================================================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  font-family: var(--font-body);
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:focus-visible {
+  outline: 3px solid var(--temple-terracotta);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--temple-terracotta);
+  color: var(--white);
+  box-shadow: 0 4px 14px rgba(181, 84, 45, 0.35);
+}
+.btn-primary:hover { background: var(--temple-terracotta-dark); }
+.btn-primary:disabled {
+  background: var(--coir-tan);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-outline {
+  background: transparent;
+  border-color: var(--husk-brown);
+  color: var(--husk-brown);
+}
+.btn-outline:hover { background: var(--husk-brown); color: var(--white); }
+
+.btn-lg { padding: 15px 30px; font-size: 1.02rem; }
+.btn-block { width: 100%; }
+
+/* =========================================================================
+   TOP BAR + HEADER
+   ========================================================================= */
+.topbar {
+  background: var(--husk-brown);
+  color: var(--coir-tan-light);
+  font-size: 0.85rem;
+}
+.topbar-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 7px 24px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.topbar-link:hover { color: var(--white); }
+
+.site-header {
+  background: var(--coconut-white);
+  border-bottom: 1px solid rgba(61, 40, 23, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(6px);
+}
+.header-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-mark { font-size: 2rem; line-height: 1; }
+.logo-text { display: flex; flex-direction: column; }
+.logo-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--husk-brown);
+}
+.logo-tagline {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--temple-terracotta);
+  font-weight: 600;
+}
+
+.main-nav {
+  display: flex;
+  gap: 32px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.main-nav a { color: var(--ink-soft); transition: color 0.15s; }
+.main-nav a:hover { color: var(--temple-terracotta); }
+
+.nav-cta { white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .main-nav { display: none; }
+}
+
+@media (max-width: 480px) {
+  .header-inner { padding: 12px 16px; gap: 12px; }
+  .logo { gap: 8px; min-width: 0; }
+  .logo-mark { font-size: 1.5rem; }
+  .logo-title { font-size: 0.92rem; line-height: 1.2; }
+  .logo-tagline { font-size: 0.62rem; }
+  .nav-cta { padding: 10px 14px; font-size: 0.85rem; white-space: nowrap; flex-shrink: 0; }
+  .topbar-inner { gap: 10px 16px; font-size: 0.76rem; }
+}
+
+/* =========================================================================
+   HERO
+   ========================================================================= */
+.hero {
+  position: relative;
+  background: linear-gradient(160deg, var(--coconut-white) 0%, var(--coconut-white-dim) 100%);
+  overflow: hidden;
+  padding: 80px 0 60px;
+}
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  color: var(--palm-green);
+}
+.palm-texture { width: 100%; height: 100%; }
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+  text-align: left;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--palm-green-dark);
+  background: rgba(74, 103, 65, 0.1);
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 100px;
+  margin: 0 0 24px;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.4rem, 5.5vw, 4.2rem);
+  line-height: 1.08;
+  color: var(--husk-brown);
+  margin: 0 0 24px;
+  letter-spacing: -0.015em;
+  max-width: 900px;
+}
+.hero-title-accent { color: var(--temple-terracotta); }
+
+.hero-sub {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  max-width: 600px;
+  margin: 0 0 36px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 56px;
+}
+
+.hero-trust {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.trust-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.trust-item strong {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  color: var(--palm-green-dark);
+}
+.trust-item span {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.trust-divider {
+  width: 1px;
+  height: 36px;
+  background: rgba(61, 40, 23, 0.15);
+}
+@media (max-width: 600px) {
+  .trust-divider { display: none; }
+}
+
+/* =========================================================================
+   PRICE COMPARISON STRIP — signature element
+   ========================================================================= */
+.price-strip {
+  background: var(--husk-brown);
+  color: var(--coconut-white);
+  padding: 72px 0;
+}
+.price-strip .section-title { color: var(--coconut-white); }
+.price-strip .section-sub { color: var(--coir-tan-light); }
+
+.compare-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.chain-step {
+  background: rgba(245, 243, 237, 0.05);
+  border: 1px solid rgba(245, 243, 237, 0.12);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+}
+.chain-new {
+  background: rgba(74, 103, 65, 0.18);
+  border-color: var(--palm-green);
+}
+
+.chain-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--coir-tan-light);
+  margin-bottom: 16px;
+}
+
+.chain-nodes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.chain-node {
+  background: rgba(245, 243, 237, 0.08);
+  border: 1px solid rgba(245, 243, 237, 0.18);
+  border-radius: 100px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--coconut-white);
+}
+.chain-node-you {
+  background: var(--temple-terracotta);
+  border-color: var(--temple-terracotta);
+}
+.chain-node-farm {
+  background: var(--palm-green);
+  border-color: var(--palm-green);
+}
+.chain-arrow {
+  color: var(--coir-tan);
+  font-size: 1.1rem;
+}
+.chain-arrow-direct {
+  color: var(--palm-green);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.chain-price {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.chain-price-old { color: var(--coir-tan); text-decoration: line-through; text-decoration-color: var(--temple-terracotta); }
+.chain-price-new { color: #8FD17A; }
+
+@media (min-width: 860px) {
+  .compare-chain { flex-direction: row; }
+  .chain-step { flex: 1; }
+}
+
+/* =========================================================================
+   PRODUCTS
+   ========================================================================= */
+.products { padding: 80px 0; background: var(--coconut-white); }
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 22px;
+}
+
+.product-card {
+  background: var(--white);
+  border: 1px solid rgba(61, 40, 23, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  display: flex;
+  flex-direction: column;
+}
+.product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card);
+}
+
+.product-icon { font-size: 2.4rem; margin-bottom: 12px; }
+
+.product-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.2rem;
+  color: var(--husk-brown);
+  margin: 0 0 6px;
+}
+
+.product-desc {
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+  flex-grow: 1;
+}
+
+.product-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-top: 1px dashed rgba(61, 40, 23, 0.15);
+  padding-top: 14px;
+}
+.product-price {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--temple-terracotta);
+}
+.product-unit {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.product-min {
+  font-size: 0.78rem;
+  color: var(--palm-green-dark);
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.loading-msg {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* =========================================================================
+   HOW IT WORKS
+   ========================================================================= */
+.how-it-works {
+  background: var(--coconut-white-dim);
+  padding: 80px 0;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+
+.step-card {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  border-left: 4px solid var(--palm-green);
+}
+.step-num {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--temple-terracotta);
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.step-card h3 {
+  font-family: var(--font-display);
+  margin: 0 0 8px;
+  color: var(--husk-brown);
+  font-size: 1.1rem;
+}
+.step-card p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+/* =========================================================================
+   ORDER FORM
+   ========================================================================= */
+.order-section {
+  padding: 80px 0 100px;
+  background: var(--coconut-white);
+}
+
+.order-inner {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 48px;
+}
+
+@media (min-width: 920px) {
+  .order-inner {
+    grid-template-columns: 0.8fr 1.2fr;
+    align-items: start;
   }
 }
 
-function saveOrders(orders) {
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), "utf-8");
+.order-help {
+  background: var(--coir-tan-light);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-top: 24px;
+}
+.order-help p {
+  margin: 0 0 12px;
+  font-weight: 600;
+  color: var(--husk-brown);
 }
 
-function generateOrderId() {
-  const now = new Date();
-  const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 12);
-  const rand = Math.floor(100 + Math.random() * 900);
-  return `TFC-${stamp}-${rand}`;
+.order-form {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid rgba(61, 40, 23, 0.06);
 }
 
-// ---------------------------------------------------------------------------
-// Email helper (optional — only fires if SMTP credentials are set in .env)
-// ---------------------------------------------------------------------------
-let transporter = null;
-if (process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_PASS !== "your_16_char_app_password_here") {
-  const nodemailer = require("nodemailer");
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: Number(process.env.SMTP_PORT) || 465,
-    secure: true,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-} else {
-  console.log(
-    "ℹ️  SMTP not configured — orders will still be saved, but no emails will be sent.\n" +
-    "   Fill in SMTP_PASS in backend/.env to enable email confirmations."
-  );
+.form-row { margin-bottom: 20px; }
+.form-row-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 480px) {
+  .form-row-split { grid-template-columns: 1fr; }
 }
 
-async function sendOrderEmails(order) {
-  if (!transporter) return;
-
-  const itemsHtml = order.items
-    .map(
-      (it) =>
-        `<tr>
-           <td style="padding:6px 10px;border-bottom:1px solid #eee;">${it.name}</td>
-           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${it.qty}</td>
-           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">₹${it.price}</td>
-           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">₹${it.subtotal}</td>
-         </tr>`
-    )
-    .join("");
-
-  const ownerHtml = `
-    <h2>New Order Received — ${order.id}</h2>
-    <p><strong>Customer:</strong> ${order.customerName}</p>
-    <p><strong>Phone:</strong> ${order.phone}</p>
-    <p><strong>Address:</strong> ${order.address}</p>
-    <p><strong>Notes:</strong> ${order.notes || "—"}</p>
-    <table style="border-collapse:collapse;width:100%;max-width:480px;">
-      <tr style="background:#f4f1ea;">
-        <th style="padding:6px 10px;text-align:left;">Item</th>
-        <th style="padding:6px 10px;">Qty</th>
-        <th style="padding:6px 10px;text-align:right;">Price</th>
-        <th style="padding:6px 10px;text-align:right;">Subtotal</th>
-      </tr>
-      ${itemsHtml}
-    </table>
-    <p style="margin-top:10px;"><strong>Total: ₹${order.total}</strong></p>
-    <p>Placed: ${order.createdAt}</p>
-  `;
-
-  const customerHtml = `
-    <h2>Thank you for your order, ${order.customerName}!</h2>
-    <p>Your order <strong>${order.id}</strong> from ${BUSINESS_NAME} has been received.</p>
-    <table style="border-collapse:collapse;width:100%;max-width:480px;">
-      <tr style="background:#f4f1ea;">
-        <th style="padding:6px 10px;text-align:left;">Item</th>
-        <th style="padding:6px 10px;">Qty</th>
-        <th style="padding:6px 10px;text-align:right;">Price</th>
-        <th style="padding:6px 10px;text-align:right;">Subtotal</th>
-      </tr>
-      ${itemsHtml}
-    </table>
-    <p style="margin-top:10px;"><strong>Total: ₹${order.total}</strong></p>
-    <p>We will call you on <strong>${order.phone}</strong> shortly to confirm delivery.</p>
-    <p>Questions? Call us directly at ${BUSINESS_PHONE} or reply to this email.</p>
-    <p style="color:#666;">— ${BUSINESS_NAME}</p>
-  `;
-
-  try {
-    await transporter.sendMail({
-      from: `"${BUSINESS_NAME}" <${process.env.SMTP_USER}>`,
-      to: BUSINESS_EMAIL,
-      subject: `🥥 New Order ${order.id} — ${order.customerName}`,
-      html: ownerHtml,
-    });
-
-    if (order.email) {
-      await transporter.sendMail({
-        from: `"${BUSINESS_NAME}" <${process.env.SMTP_USER}>`,
-        to: order.email,
-        subject: `Your order ${order.id} is confirmed — ${BUSINESS_NAME}`,
-        html: customerHtml,
-      });
-    }
-  } catch (err) {
-    console.error("Email sending failed (order was still saved):", err.message);
-  }
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--husk-brown);
+  margin-bottom: 6px;
 }
 
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
+input[type="text"],
+input[type="tel"],
+input[type="email"],
+input[type="number"],
+textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid rgba(61, 40, 23, 0.18);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.96rem;
+  background: var(--coconut-white);
+  color: var(--ink);
+  transition: border-color 0.15s ease;
+}
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--temple-terracotta);
+  background: var(--white);
+}
+textarea { resize: vertical; }
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", business: BUSINESS_NAME });
-});
+.order-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-// Get product catalog
-app.get("/api/products", (req, res) => {
-  res.json(PRODUCTS);
-});
+.order-item-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+  border: 1.5px solid rgba(61, 40, 23, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--coconut-white);
+}
+.order-item-info { display: flex; flex-direction: column; }
+.order-item-name { font-weight: 600; font-size: 0.93rem; color: var(--husk-brown); }
+.order-item-meta { font-size: 0.78rem; color: var(--ink-soft); }
 
-// Place a new order
-app.post("/api/orders", async (req, res) => {
-  try {
-    const { customerName, phone, email, address, notes, items } = req.body;
+.qty-control {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1.5px solid rgba(61, 40, 23, 0.18);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.qty-btn {
+  background: var(--coir-tan-light);
+  border: none;
+  width: 32px;
+  height: 32px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--husk-brown);
+}
+.qty-btn:hover { background: var(--coir-tan); }
+.qty-input {
+  width: 50px;
+  text-align: center;
+  border: none;
+  padding: 6px 0;
+  font-weight: 600;
+  background: var(--white);
+}
+.qty-input:focus { outline: none; }
 
-    // ---- Basic validation ----
-    if (!customerName || !customerName.trim()) {
-      return res.status(400).json({ error: "Customer name is required." });
-    }
-    if (!phone || !/^[0-9]{10}$/.test(phone.replace(/\D/g, ""))) {
-      return res.status(400).json({ error: "A valid 10-digit phone number is required." });
-    }
-    if (!address || !address.trim()) {
-      return res.status(400).json({ error: "Delivery address is required." });
-    }
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "At least one item must be ordered." });
-    }
+.order-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--husk-brown);
+  padding: 16px 0;
+  border-top: 1px dashed rgba(61, 40, 23, 0.2);
+  margin-bottom: 20px;
+}
+#orderTotal { color: var(--temple-terracotta); }
 
-    // ---- Recalculate prices server-side (never trust the client for money) ----
-    let total = 0;
-    const validatedItems = [];
+.form-message {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 14px;
+  min-height: 1.2em;
+}
+.form-message.error { color: var(--temple-terracotta-dark); }
+.form-message.success { color: var(--palm-green-dark); }
 
-    for (const reqItem of items) {
-      const product = PRODUCTS.find((p) => p.id === reqItem.id);
-      if (!product) {
-        return res.status(400).json({ error: `Unknown product: ${reqItem.id}` });
-      }
-      const qty = Number(reqItem.qty);
-      if (!Number.isFinite(qty) || qty <= 0) {
-        return res.status(400).json({ error: `Invalid quantity for ${product.name}.` });
-      }
-      if (qty < product.minOrder) {
-        return res.status(400).json({
-          error: `Minimum order for ${product.name} is ${product.minOrder} (${product.unit}).`,
-        });
-      }
-      const subtotal = product.price * qty;
-      total += subtotal;
-      validatedItems.push({
-        id: product.id,
-        name: product.name,
-        price: product.price,
-        qty,
-        subtotal,
-      });
-    }
+.form-footnote {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 14px 0 0;
+}
 
-    const order = {
-      id: generateOrderId(),
-      customerName: customerName.trim(),
-      phone: phone.replace(/\D/g, ""),
-      email: email ? email.trim() : null,
-      address: address.trim(),
-      notes: notes ? notes.trim() : "",
-      items: validatedItems,
-      total,
-      status: "received",
-      createdAt: new Date().toISOString(),
-    };
+/* =========================================================================
+   FOOTER
+   ========================================================================= */
+.site-footer {
+  background: var(--husk-brown);
+  color: var(--coir-tan-light);
+  padding: 56px 0 0;
+}
+.footer-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px 40px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 36px;
+}
+@media (min-width: 760px) {
+  .footer-inner { grid-template-columns: 1.4fr 1fr 1fr; }
+}
 
-    const orders = readOrders();
-    orders.push(order);
-    saveOrders(orders);
+.footer-brand {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.footer-title {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--coconut-white);
+  margin: 0 0 6px;
+}
+.footer-tagline {
+  font-size: 0.88rem;
+  color: var(--coir-tan-light);
+  margin: 0;
+  max-width: 280px;
+}
 
-    // Fire-and-forget email; order is already safely saved regardless of email outcome
-    sendOrderEmails(order).catch((e) => console.error(e));
+.footer-contact h4, .footer-hours h4 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--coir-tan);
+  margin: 0 0 14px;
+}
+.footer-link {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+  color: var(--coconut-white);
+}
+.footer-link:hover { color: var(--temple-terracotta); }
+.footer-static { color: var(--coir-tan-light); }
+.footer-hours p { margin: 0 0 8px; font-size: 0.92rem; }
 
-    res.status(201).json({
-      message: "Order placed successfully.",
-      orderId: order.id,
-      total: order.total,
-    });
-  } catch (err) {
-    console.error("Error placing order:", err);
-    res.status(500).json({ error: "Something went wrong while placing your order. Please call us directly." });
-  }
-});
+.footer-bottom {
+  border-top: 1px solid rgba(245, 243, 237, 0.12);
+  padding: 18px 24px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--coir-tan);
+}
 
-// Get a single order by ID (useful for an order-status lookup page)
-app.get("/api/orders/:id", (req, res) => {
-  const orders = readOrders();
-  const order = orders.find((o) => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: "Order not found." });
-  res.json(order);
-});
+/* =========================================================================
+   MODAL
+   ========================================================================= */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(42, 31, 21, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+.modal-overlay[hidden] { display: none; }
 
-// ---- Simple admin endpoint to view all orders (protect this in production!) ----
-app.get("/api/admin/orders", (req, res) => {
-  const adminKey = req.query.key;
-  if (adminKey !== (process.env.ADMIN_KEY || "thanjavur2026")) {
-    return res.status(401).json({ error: "Unauthorized. Provide correct ?key=" });
-  }
-  const orders = readOrders().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json(orders);
-});
+.modal-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 36px;
+  max-width: 380px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.modal-icon { font-size: 3rem; margin-bottom: 12px; }
+.modal-card h3 {
+  font-family: var(--font-display);
+  color: var(--husk-brown);
+  margin: 0 0 12px;
+  font-size: 1.4rem;
+}
+.modal-card p { color: var(--ink-soft); margin: 0 0 8px; }
+.modal-card .btn { margin-top: 18px; }
 
-app.listen(PORT, () => {
-  console.log(`🥥 ${BUSINESS_NAME} backend running on http://localhost:${PORT}`);
-  console.log(`   Contact: ${BUSINESS_PHONE} | ${BUSINESS_EMAIL}`);
-});
+/* =========================================================================
+   ACCESSIBILITY / MOTION
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn, .product-card { transition: none; }
+}
+
+:focus-visible {
+  outline: 3px solid var(--temple-terracotta);
+  outline-offset: 2px;
+}
