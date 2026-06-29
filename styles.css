@@ -1,0 +1,307 @@
+/**
+ * Thanjavur Fresh Coconuts — Backend API
+ * --------------------------------------
+ * A small, dependable Express server that:
+ *   1. Serves the product list (so prices live in one place, not scattered in HTML)
+ *   2. Accepts new orders from the website's order form
+ *   3. Saves every order to a local JSON file (orders.json) as a permanent record
+ *   4. Emails the business owner + the customer a confirmation (if SMTP is configured)
+ *
+ * No database server required — orders.json acts as a simple, file-based database.
+ * This is intentional: easy to deploy, easy to back up (just copy the file),
+ * easy to read by hand. Swap in a real database later if order volume grows.
+ */
+
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const fs = require("fs");
+const path = require("path");
+require("dotenv").config();
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+const ORDERS_FILE = path.join(__dirname, "orders.json");
+
+const BUSINESS_NAME = process.env.BUSINESS_NAME || "Thanjavur Fresh Coconuts";
+const BUSINESS_PHONE = process.env.BUSINESS_PHONE || "7397250301";
+const BUSINESS_EMAIL = process.env.BUSINESS_EMAIL || "abineshvicky2006@gmail.com";
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// ---------------------------------------------------------------------------
+// Product catalog — single source of truth for what's sold and at what price.
+// Edit this list to change what shows up on the website; the frontend pulls
+// this via GET /api/products instead of hardcoding prices in HTML.
+// ---------------------------------------------------------------------------
+const PRODUCTS = [
+  {
+    id: "tender-coconut",
+    name: "Tender Coconut (Elaneer)",
+    unit: "per piece",
+    price: 35,
+    minOrder: 10,
+    description: "Sweet, soft-water tender coconuts cut fresh same morning from the farm.",
+  },
+  {
+    id: "dry-coconut",
+    name: "Dry Coconut (Thengai)",
+    unit: "per piece",
+    price: 28,
+    minOrder: 10,
+    description: "Mature, full-husked dry coconuts. Ideal for cooking and festival use.",
+  },
+  {
+    id: "coconut-husked-100",
+    name: "Husked Coconut (De-husked)",
+    unit: "per piece",
+    price: 22,
+    minOrder: 20,
+    description: "De-husked, ready-to-crack coconuts for kitchens and small hotels.",
+  },
+  {
+    id: "coconut-bulk-sack",
+    name: "Wholesale Sack (100 pcs)",
+    unit: "per sack",
+    price: 2200,
+    minOrder: 1,
+    description: "Bulk sack of 100 dry coconuts — best rate for shops, hotels, and resellers.",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Orders storage helpers
+// ---------------------------------------------------------------------------
+function readOrders() {
+  if (!fs.existsSync(ORDERS_FILE)) return [];
+  try {
+    const raw = fs.readFileSync(ORDERS_FILE, "utf-8");
+    return raw.trim() ? JSON.parse(raw) : [];
+  } catch (err) {
+    console.error("Failed to read orders.json:", err);
+    return [];
+  }
+}
+
+function saveOrders(orders) {
+  fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), "utf-8");
+}
+
+function generateOrderId() {
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 12);
+  const rand = Math.floor(100 + Math.random() * 900);
+  return `TFC-${stamp}-${rand}`;
+}
+
+// ---------------------------------------------------------------------------
+// Email helper (optional — only fires if SMTP credentials are set in .env)
+// ---------------------------------------------------------------------------
+let transporter = null;
+if (process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_PASS !== "your_16_char_app_password_here") {
+  const nodemailer = require("nodemailer");
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT) || 465,
+    secure: true,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+} else {
+  console.log(
+    "ℹ️  SMTP not configured — orders will still be saved, but no emails will be sent.\n" +
+    "   Fill in SMTP_PASS in backend/.env to enable email confirmations."
+  );
+}
+
+async function sendOrderEmails(order) {
+  if (!transporter) return;
+
+  const itemsHtml = order.items
+    .map(
+      (it) =>
+        `<tr>
+           <td style="padding:6px 10px;border-bottom:1px solid #eee;">${it.name}</td>
+           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${it.qty}</td>
+           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">₹${it.price}</td>
+           <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;">₹${it.subtotal}</td>
+         </tr>`
+    )
+    .join("");
+
+  const ownerHtml = `
+    <h2>New Order Received — ${order.id}</h2>
+    <p><strong>Customer:</strong> ${order.customerName}</p>
+    <p><strong>Phone:</strong> ${order.phone}</p>
+    <p><strong>Address:</strong> ${order.address}</p>
+    <p><strong>Notes:</strong> ${order.notes || "—"}</p>
+    <table style="border-collapse:collapse;width:100%;max-width:480px;">
+      <tr style="background:#f4f1ea;">
+        <th style="padding:6px 10px;text-align:left;">Item</th>
+        <th style="padding:6px 10px;">Qty</th>
+        <th style="padding:6px 10px;text-align:right;">Price</th>
+        <th style="padding:6px 10px;text-align:right;">Subtotal</th>
+      </tr>
+      ${itemsHtml}
+    </table>
+    <p style="margin-top:10px;"><strong>Total: ₹${order.total}</strong></p>
+    <p>Placed: ${order.createdAt}</p>
+  `;
+
+  const customerHtml = `
+    <h2>Thank you for your order, ${order.customerName}!</h2>
+    <p>Your order <strong>${order.id}</strong> from ${BUSINESS_NAME} has been received.</p>
+    <table style="border-collapse:collapse;width:100%;max-width:480px;">
+      <tr style="background:#f4f1ea;">
+        <th style="padding:6px 10px;text-align:left;">Item</th>
+        <th style="padding:6px 10px;">Qty</th>
+        <th style="padding:6px 10px;text-align:right;">Price</th>
+        <th style="padding:6px 10px;text-align:right;">Subtotal</th>
+      </tr>
+      ${itemsHtml}
+    </table>
+    <p style="margin-top:10px;"><strong>Total: ₹${order.total}</strong></p>
+    <p>We will call you on <strong>${order.phone}</strong> shortly to confirm delivery.</p>
+    <p>Questions? Call us directly at ${BUSINESS_PHONE} or reply to this email.</p>
+    <p style="color:#666;">— ${BUSINESS_NAME}</p>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: `"${BUSINESS_NAME}" <${process.env.SMTP_USER}>`,
+      to: BUSINESS_EMAIL,
+      subject: `🥥 New Order ${order.id} — ${order.customerName}`,
+      html: ownerHtml,
+    });
+
+    if (order.email) {
+      await transporter.sendMail({
+        from: `"${BUSINESS_NAME}" <${process.env.SMTP_USER}>`,
+        to: order.email,
+        subject: `Your order ${order.id} is confirmed — ${BUSINESS_NAME}`,
+        html: customerHtml,
+      });
+    }
+  } catch (err) {
+    console.error("Email sending failed (order was still saved):", err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", business: BUSINESS_NAME });
+});
+
+// Get product catalog
+app.get("/api/products", (req, res) => {
+  res.json(PRODUCTS);
+});
+
+// Place a new order
+app.post("/api/orders", async (req, res) => {
+  try {
+    const { customerName, phone, email, address, notes, items } = req.body;
+
+    // ---- Basic validation ----
+    if (!customerName || !customerName.trim()) {
+      return res.status(400).json({ error: "Customer name is required." });
+    }
+    if (!phone || !/^[0-9]{10}$/.test(phone.replace(/\D/g, ""))) {
+      return res.status(400).json({ error: "A valid 10-digit phone number is required." });
+    }
+    if (!address || !address.trim()) {
+      return res.status(400).json({ error: "Delivery address is required." });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "At least one item must be ordered." });
+    }
+
+    // ---- Recalculate prices server-side (never trust the client for money) ----
+    let total = 0;
+    const validatedItems = [];
+
+    for (const reqItem of items) {
+      const product = PRODUCTS.find((p) => p.id === reqItem.id);
+      if (!product) {
+        return res.status(400).json({ error: `Unknown product: ${reqItem.id}` });
+      }
+      const qty = Number(reqItem.qty);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return res.status(400).json({ error: `Invalid quantity for ${product.name}.` });
+      }
+      if (qty < product.minOrder) {
+        return res.status(400).json({
+          error: `Minimum order for ${product.name} is ${product.minOrder} (${product.unit}).`,
+        });
+      }
+      const subtotal = product.price * qty;
+      total += subtotal;
+      validatedItems.push({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        qty,
+        subtotal,
+      });
+    }
+
+    const order = {
+      id: generateOrderId(),
+      customerName: customerName.trim(),
+      phone: phone.replace(/\D/g, ""),
+      email: email ? email.trim() : null,
+      address: address.trim(),
+      notes: notes ? notes.trim() : "",
+      items: validatedItems,
+      total,
+      status: "received",
+      createdAt: new Date().toISOString(),
+    };
+
+    const orders = readOrders();
+    orders.push(order);
+    saveOrders(orders);
+
+    // Fire-and-forget email; order is already safely saved regardless of email outcome
+    sendOrderEmails(order).catch((e) => console.error(e));
+
+    res.status(201).json({
+      message: "Order placed successfully.",
+      orderId: order.id,
+      total: order.total,
+    });
+  } catch (err) {
+    console.error("Error placing order:", err);
+    res.status(500).json({ error: "Something went wrong while placing your order. Please call us directly." });
+  }
+});
+
+// Get a single order by ID (useful for an order-status lookup page)
+app.get("/api/orders/:id", (req, res) => {
+  const orders = readOrders();
+  const order = orders.find((o) => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found." });
+  res.json(order);
+});
+
+// ---- Simple admin endpoint to view all orders (protect this in production!) ----
+app.get("/api/admin/orders", (req, res) => {
+  const adminKey = req.query.key;
+  if (adminKey !== (process.env.ADMIN_KEY || "thanjavur2026")) {
+    return res.status(401).json({ error: "Unauthorized. Provide correct ?key=" });
+  }
+  const orders = readOrders().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(orders);
+});
+
+app.listen(PORT, () => {
+  console.log(`🥥 ${BUSINESS_NAME} backend running on http://localhost:${PORT}`);
+  console.log(`   Contact: ${BUSINESS_PHONE} | ${BUSINESS_EMAIL}`);
+});
